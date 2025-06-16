@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>MGPS Manhattan</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif; 
+            height: 100vh; 
+            display: flex; 
+            overflow: hidden;
+        }
+        #map { 
+            flex-grow: 1; 
+        }
+        #sidebar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 350px;
+            background: rgba(244, 244, 244, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            font-family: Arial, sans-serif;
+            transition: transform 0.3s ease;
+            max-height: 90vh;
+            overflow: hidden;
+            z-index: 1000;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+        #sidebar.hidden { 
+            transform: translateX(380px); 
+        }
+        #toggle-btn {
+            position: absolute;
+            top: 10px;
+            right: 370px;
+            background: #444;
+            color: pink;
+            border: none;
+            border-radius: 5px;
+            width: 25px;
+            height: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1100;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        #toggle-btn:hover { 
+            background: #666; 
+        }
+        #sidebar h2 { 
+            margin: 0 0 15px 0;
+            padding: 0;
+            text-align: center; 
+            font-size: 1.3rem;
+            color: #333;
+        }
+        #sidebar input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            font-size: 14px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+            outline: none;
+            transition: border 0.3s;
+        }
+        #sidebar input[type="text"]:focus {
+            border-color: #337ab7;
+        }
+        #sidebar button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 15px;
+            border-radius: 6px;
+            border: none;
+            background-color: purple;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s;
+        }
+        #sidebar button:hover { 
+            background-color: black; 
+        }
+        .info-container {
+            margin-top: 10px;
+            background: white;
+            padding: 0;
+            border-radius: 8px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+            flex-grow: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #details-table-container {
+            overflow-y: auto;
+            flex-grow: 1;
+            padding: 5px;
+        }
+        #details-table-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        #details-table-container::-webkit-scrollbar-thumb {
+            background: #aaa;
+            border-radius: 3px;
+        }
+        .details-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            font-size: 0.9rem;
+            table-layout: fixed;
+        }
+        .details-table th { 
+            background: #f0f0f0; 
+            font-weight: bold; 
+            padding: 10px 8px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .details-table td { 
+            padding: 8px; 
+            border-bottom: 1px solid #eee; 
+            text-align: center; 
+            vertical-align: middle;
+        }
+        .details-table tr:last-child td {
+            border-bottom: none;
+        }
+        .details-table td:first-child { 
+            text-align: left; 
+            width: 30%;
+        }
+        .airport-icon { 
+            font-size: 18px; 
+            text-align: center; 
+        }
+        .flight-path { 
+            stroke-dasharray: 5, 5; 
+        }
+        .route-type-terrestrial { 
+            background-color: #f0f9ff; 
+        }
+        .route-type-aerial { 
+            background-color: #fffaf0; 
+        }
+        .route-type-multimodal_aerial { 
+            background-color: #f8f0ff; 
+        }
+        .transport-icon { 
+            font-size: 1.3em; 
+            margin-right: 5px;
+        }
+        .error-message, .loading-message { 
+            color: #d9534f; 
+            padding: 15px; 
+            background: #f8d7da; 
+            border-radius: 5px; 
+            text-align: center;
+            margin: 10px;
+        }
+        .loading-message { 
+            color: #333; 
+            background: #f0f0f0; 
+        }
+        #details-panel {
+            display: none;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+
+<button id="toggle-btn" title="Mostrar/Ocultar barra">☰</button>
+
+<div id="sidebar">
+    <h2>Ruta</h2>
+    <input type="text" id="start-location" placeholder="Punto de inicio ">
+    <input type="text" id="end-location" placeholder="Punto de destino">
+    <button id="search-btn">Procesar Ruta</button>
+
+    <div class="info-container" id="details-panel">
+        <div id="details-table-container"></div>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // Inicialización del mapa
+    const map = L.map('map').setView([19.4326, -99.1332], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Variables globales
+    let startPoint = null, endPoint = null;
+    let mapLayers = [];
+
+    // Funciones de formato
+    function formatTime(seconds) {
+        if (seconds === null || isNaN(seconds)) return 'N/D';
+        const numericSeconds = Number(seconds);
+        if (numericSeconds < 60) return '< 1 min';
+        const totalMinutes = Math.round(numericSeconds / 60);
+        if (totalMinutes < 60) return `${totalMinutes} min`;
+        const hours = Math.floor(totalMinutes / 60);
+        const remMinutes = totalMinutes % 60;
+        return `${hours}h ${remMinutes}min`;
+    }
+    
+    function formatCurrency(value) {
+        if (value === null || isNaN(value)) return 'N/D';
+        if (value === 0) return '$0';
+        return `$${value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+    }
+    
+    function formatCarbon(grams) {
+        if (grams === null || isNaN(grams)) return 'N/D';
+        if (grams === 0) return '0 g';
+        if (grams < 1000) return `${grams.toFixed(0)} g`;
+        return `${(grams / 1000).toFixed(2)} kg`;
+    }
+    
+    function formatDistance(km) {
+        if (km === null || isNaN(km)) return 'N/D';
+        return `${km.toFixed(1)} km`;
+    }
+
+    // Actualizar tabla de detalles
+    function updateDetailsTable(details) {
+        const container = document.getElementById('details-table-container');
+        document.getElementById('details-panel').style.display = 'flex';
+
+        const transportModes = {
+            'car': {icon: '🚗', name: 'Auto'},
+            'motorcycle': {icon: '🏍️', name: 'Moto'},
+            'bike': {icon: '🚲', name: 'Bicicleta'},
+            'walk': {icon: '🚶', name: 'Caminar'},
+            'flight': {icon: '✈️', name: 'Vuelo directo'},
+            'multimodal_flight': {icon: '✈️🔄', name: 'Vuelo multimodal'}
+        };
+
+        let tableHTML = `
+        <table class="details-table">
+            <thead>
+                <tr>
+                    <th>Transporte</th>
+                    <th>Tiempo</th>
+                    <th>Distancia</th>
+                    <th>Costo</th>
+                    <th>CO₂</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        const displayOrder = ['car', 'motorcycle', 'bike', 'walk', 'flight', 'multimodal_flight'];
+        
+        for (const mode of displayOrder) {
+            const modeDetails = details[mode];
+            if (!modeDetails) continue;
+
+            const transport = transportModes[mode];
+            const rowClass = `route-type-${modeDetails.route_type.replace('_aerial', '')}`;
+            
+            let timeDisplay, distanceDisplay, costDisplay;
+            
+            if (mode === 'flight' || mode === 'multimodal_flight') {
+                costDisplay = 'N/A';
+                if (modeDetails.ground1_duration_s) {
+                    timeDisplay = `
+                        <div><strong>${formatTime(modeDetails.duration_s)}</strong></div>
+                        <small style="font-size:0.8em;color:#666;">
+                            Tierra: ${formatTime(modeDetails.ground1_duration_s + modeDetails.ground2_duration_s)}
+                        </small>`;
+                    distanceDisplay = `
+                        <div><strong>${formatDistance(modeDetails.total_distance_km)}</strong></div>
+                        <small style="font-size:0.8em;color:#666;">
+                            Vuelo: ${formatDistance(modeDetails.distance_km)}
+                        </small>`;
+                } else {
+                    timeDisplay = formatTime(modeDetails.duration_s);
+                    distanceDisplay = formatDistance(modeDetails.distance_km);
+                }
+            } else {
+                timeDisplay = formatTime(modeDetails.duration_s);
+                distanceDisplay = formatDistance(modeDetails.distance_km);
+                costDisplay = formatCurrency(modeDetails.tolls_mxn + modeDetails.fuel_mxn);
+            }
+            
+            tableHTML += `
+                <tr class="${rowClass}">
+                    <td><span class="transport-icon">${transport.icon}</span> ${transport.name}</td>
+                    <td>${timeDisplay}</td>
+                    <td>${distanceDisplay}</td>
+                    <td>${costDisplay}</td>
+                    <td>${formatCarbon(modeDetails.carbon_g)}</td>
+                </tr>`;
+        }
+
+        tableHTML += `</tbody></table>`;
+        container.innerHTML = tableHTML;
+    }
+
+    // Funciones del mapa
+    function addLayer(layer) {
+        layer.addTo(map);
+        mapLayers.push(layer);
+    }
+    
+    function setMarker(point, label, isAirport = false) {
+        const icon = isAirport ? 
+            L.divIcon({className: 'airport-icon', html: '✈️', iconSize: [24, 24]}) : 
+            L.icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${label === 'Inicio' ? 'green' : 'red'}.png`,
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            });
+        const marker = L.marker(point, {icon: icon}).bindPopup(label);
+        addLayer(marker);
+        return marker;
+    }
+    
+    function clearMap() {
+        mapLayers.forEach(l => map.removeLayer(l));
+        mapLayers = [];
+        startPoint = endPoint = null;
+        document.getElementById('details-panel').style.display = 'none';
+        document.getElementById('details-table-container').innerHTML = '';
+    }
+    
+    function drawFlightPath(start, end) {
+        const flightLayer = L.polyline([start, end], {
+            color: '#555',
+            weight: 2,
+            dashArray: '5, 5',
+            opacity: 0.7
+        });
+        addLayer(flightLayer);
+    }
+    
+    // Dibujar ruta en el mapa
+    async function drawRoute() {
+        if (!startPoint || !endPoint) return;
+        
+        const container = document.getElementById('details-table-container');
+        container.innerHTML = '<div class="loading-message">Rutas disponibles...</div>';
+        document.getElementById('details-panel').style.display = 'flex';
+        
+        try {
+            const response = await fetch('/calcular_ruta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start: startPoint, end: endPoint })
+            });
+            
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.message || 'Error desconocido');
+
+            // Limpiar capas anteriores
+            mapLayers.forEach(l => { if (!(l instanceof L.Marker)) map.removeLayer(l); });
+            mapLayers = mapLayers.filter(l => l instanceof L.Marker);
+
+            const boundsPoints = [startPoint, endPoint];
+            
+            // Dibujar ruta terrestre si existe
+            if (data.terrestrial_route) {
+                const terrestrialLayer = L.polyline(data.terrestrial_route, { 
+                    color: 'blue', 
+                    weight: 5,
+                    opacity: 0.7
+                });
+                addLayer(terrestrialLayer);
+                boundsPoints.push(...data.terrestrial_route);
+            }
+
+            // Dibujar ruta Manhattan si existe
+            if (data.manhattan_path) {
+                const manhattanLayer = L.polyline(data.manhattan_path, { 
+                    color: 'red', 
+                    weight: 3, 
+                    dashArray: '4, 8',
+                    opacity: 0.6
+                });
+                addLayer(manhattanLayer);
+            }
+
+            // Dibujar ruta multimodal si existe
+            if (data.multimodal_parts) {
+                const { ground1, flight, ground2, manhattan_path } = data.multimodal_parts;
+                
+                // Ruta al aeropuerto de salida
+                addLayer(L.polyline(ground1, { 
+                    color: '#0b8043', 
+                    weight: 4,
+                    opacity: 0.7
+                }));
+                
+                // Vuelo
+                drawFlightPath(flight[0], flight[1]);
+                
+                // Ruta desde aeropuerto de llegada
+                addLayer(L.polyline(ground2, { 
+                    color: '#0b8043', 
+                    weight: 4,
+                    opacity: 0.7
+                }));
+                
+                // Ruta Manhattan si existe
+                if (manhattan_path) {
+                    addLayer(L.polyline(manhattan_path, { 
+                        color: '#red', 
+                        weight: 3, 
+                        dashArray: '5, 5',
+                        opacity: 0.7
+                    }));
+                }
+                
+                boundsPoints.push(...ground1, ...flight, ...ground2);
+
+                // Marcadores de aeropuertos
+                if (data.airports) {
+                    setMarker([data.airports.start.lat, data.airports.start.lon], 
+                              `Aeropuerto de salida:<br><strong>${data.airports.start.name}</strong>`, true);
+                    setMarker([data.airports.end.lat, data.airports.end.lon], 
+                              `Aeropuerto de llegada:<br><strong>${data.airports.end.name}</strong>`, true);
+                }
+            } else if (data.details.flight) {
+                // Vuelo directo si no hay multimodal
+                drawFlightPath(startPoint, endPoint);
+            }
+
+            // Ajustar vista del mapa
+            if (boundsPoints.length > 1) {
+                map.fitBounds(L.latLngBounds(boundsPoints).pad(0.1));
+            }
+
+            // Actualizar tabla de resultados
+            updateDetailsTable(data.details);
+
+        } catch (error) {
+            console.error('Error:', error);
+            container.innerHTML = `<div class="error-message">Error al calcular la ruta:<br>${error.message}</div>`;
+        }
+    }
+    
+    // Evento de búsqueda
+    document.getElementById('search-btn').addEventListener('click', async () => {
+        const startQuery = document.getElementById('start-location').value.trim();
+        const endQuery = document.getElementById('end-location').value.trim();
+        
+        if (!startQuery || !endQuery) {
+            alert("Ingresa tanto el punto de inicio como el destino.");
+            return;
+        }
+        
+        clearMap();
+        try {
+            const startReq = fetch(`/buscar_lugar?q=${encodeURIComponent(startQuery)}`).then(res => res.json());
+            const endReq = fetch(`/buscar_lugar?q=${encodeURIComponent(endQuery)}`).then(res => res.json());
+            const [startData, endData] = await Promise.all([startReq, endReq]);
+
+            if (startData.status === 'error' || endData.status === 'error') {
+                throw new Error(startData.message || endData.message || 'No se pudo encontrar uno o ambos lugares');
+            }
+            
+            startPoint = [startData.lat, startData.lon];
+            endPoint = [endData.lat, endData.lon];
+
+            setMarker(startPoint, "<strong>Inicio</strong>").openPopup();
+            setMarker(endPoint, "<strong>Destino</strong>");
+            
+            await drawRoute();
+        } catch (e) {
+            console.error('Error:', e);
+            document.getElementById('details-table-container').innerHTML = 
+                `<div class="error-message">Error al buscar lugares:<br>${e.message}</div>`;
+            document.getElementById('details-panel').style.display = 'flex';
+        }
+    });
+    
+    // Eventos del mapa
+    map.on('click', async e => {
+        if (!startPoint) {
+            clearMap();
+            startPoint = [e.latlng.lat, e.latlng.lng];
+            setMarker(startPoint, "<strong>Inicio</strong>").openPopup();
+        } else if (!endPoint) {
+            endPoint = [e.latlng.lat, e.latlng.lng];
+            setMarker(endPoint, "<strong>Destino</strong>");
+            await drawRoute();
+        } else {
+            clearMap();
+            startPoint = [e.latlng.lat, e.latlng.lng];
+            setMarker(startPoint, "<strong>Inicio</strong>").openPopup();
+        }
+    });
+    
+    // Botón para mostrar/ocultar panel
+    document.getElementById('toggle-btn').onclick = () => {
+        document.getElementById('sidebar').classList.toggle('hidden');
+    };
+</script>
+</body>
+</html>
